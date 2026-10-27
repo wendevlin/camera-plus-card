@@ -269,6 +269,16 @@
     }
   };
 
+  // Sets the element directly inside the click, so browsers that require a user
+  // gesture to unmute (iOS, Android WebView) still count it as one.
+  const toggleMute = () => {
+    muted = !muted;
+    if (!video) return;
+    video.muted = muted;
+    // Unmuting can pause an autoplaying video; resume it while the gesture is still active.
+    if (!muted && video.paused) video.play().catch(() => (muted = true));
+  };
+
   const snapshot = () => {
     if (!ctx.hassApi) return;
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -415,8 +425,13 @@
     </div>
 
     {#if zoom.zoomed && !ptzMode}
-      <!-- Position hint while digitally zoomed -->
-      <div class="absolute top-3 right-3 z-10 flex items-center gap-2">
+      <!-- Position hint while digitally zoomed; fades out with the control bar. -->
+      <div
+        class={cn(
+          "absolute top-3 right-3 z-10 flex items-center gap-2 transition-opacity",
+          !controlsVisible && "pointer-events-none opacity-0",
+        )}
+      >
         <div
           class="relative h-9 w-16 overflow-hidden rounded-md bg-black/45 ring-1 ring-white/20 backdrop-blur-md"
         >
@@ -510,10 +525,7 @@
         onfocusin={showControls}
       >
         {#if mode === "web_rtc" || mode === "hls"}
-          <ControlButton
-            label={muted ? t("player.unmute") : t("player.mute")}
-            onclick={() => (muted = !muted)}
-          >
+          <ControlButton label={muted ? t("player.unmute") : t("player.mute")} onclick={toggleMute}>
             {#if muted}
               <VolumeX />
             {:else}

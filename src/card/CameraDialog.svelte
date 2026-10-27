@@ -37,6 +37,7 @@
   let dialog = $state<HTMLDialogElement>();
   let portalTarget = $state<HTMLDivElement>();
   let panel = $state<HTMLDivElement>();
+  let scroller = $state<HTMLDivElement>();
   // Reactive, so rotating the phone switches between D-pad panel and overlay.
   const ptzPanelQuery = new MediaQuery(PTZ_PANEL_MEDIA_QUERY);
   const ptzLayout = $derived(ptzPanelQuery.current ? "panel" : "overlay");
@@ -55,7 +56,20 @@
     dialog?.showModal();
     // showModal() focuses the close button and shows its focus ring; start on the panel instead.
     panel?.focus();
+    // A modal <dialog> doesn't stop wheel and touch scrolling from reaching the
+    // dashboard behind it. Only the dialog's own scroll area may scroll, and only
+    // while it overflows (its overscroll-contain keeps it from chaining further).
+    const blockPageScroll = (event: Event) => {
+      const target = event.target as Node | null;
+      if (scroller?.contains(target) && scroller.scrollHeight > scroller.clientHeight) return;
+      if (event.cancelable) event.preventDefault();
+    };
+    // Svelte's own wheel/touchmove handlers are passive and can't cancel the scroll.
+    for (const type of ["wheel", "touchmove"]) {
+      dialog?.addEventListener(type, blockPageScroll, { passive: false });
+    }
     return () => {
+      for (const type of ["wheel", "touchmove"]) dialog?.removeEventListener(type, blockPageScroll);
       if (dialog?.open) dialog.close();
     };
   });
@@ -98,7 +112,7 @@
     </header>
 
     <!-- Scrolls when the PTZ panel doesn't fit below the video on short screens. -->
-    <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+    <div bind:this={scroller} class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
       {#if portalTarget}
         <BitsConfig defaultPortalTo={portalTarget}>
           {#if entityId}
