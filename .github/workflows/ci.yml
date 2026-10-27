@@ -23,10 +23,3 @@ jobs:
         with:
           name: camera-plus-card
           path: dist/*.js
-
-  hacs:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: hacs/action@main
-        with:
-          category: plugin
