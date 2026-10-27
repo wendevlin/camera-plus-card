@@ -85,7 +85,7 @@ The toolchain is [Bun](https://bun.sh) (pinned in `mise.toml`), with Vite as the
 ### Releasing
 
 1. Bump `version` in `package.json` (e.g. `0.1.0-beta.2`) and commit.
-2. Create a GitHub release with the tag `v<version>`, marked as *pre-release* for betas.
+2. Create a GitHub release whose tag is exactly the version, without a `v` prefix (e.g. `0.1.0-beta.1`). Mark betas as *pre-release*.
 3. The release workflow checks the tag against `package.json`, runs all checks, builds and attaches the `.js` files. HACS picks them up from the release.
 
 ### How it fits into Home Assistant

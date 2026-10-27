@@ -17,7 +17,8 @@ jobs:
       - name: Check tag matches package.json
         run: |
           version="$(jq -r .version package.json)"
-          tag="${GITHUB_REF_NAME#v}"
+          # Tags are the bare version, without a "v" prefix (e.g. 0.1.0-beta.1).
+          tag="$GITHUB_REF_NAME"
           if [ "$version" != "$tag" ]; then
             echo "::error::Release tag $GITHUB_REF_NAME does not match package.json version $version"
             exit 1
