@@ -1,0 +1,137 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn-svelte/tailwind.css";
+
+/* `.dark` is set on our root wrapper from the HA `hassUi` context. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Design tokens live on `:host` (not `:root`) because every sheet is adopted
+ * into a shadow root. Values come from HA theme variables, which inherit
+ * through shadow boundaries, so the card follows the active HA theme.
+ */
+:host {
+  --radius: var(--ha-card-border-radius, 12px);
+  --background: var(--card-background-color, var(--ha-card-background, #fff));
+  --foreground: var(--primary-text-color, #141414);
+  --primary: var(--primary-color, #03a9f4);
+  --primary-foreground: var(--text-primary-color, #fff);
+  --muted: color-mix(in srgb, var(--foreground) 8%, transparent);
+  --muted-foreground: var(--secondary-text-color, #727272);
+  --secondary: var(--muted);
+  --secondary-foreground: var(--foreground);
+  --accent: var(--muted);
+  --accent-foreground: var(--foreground);
+  --popover: var(--background);
+  --popover-foreground: var(--foreground);
+  --card: var(--background);
+  --card-foreground: var(--foreground);
+  --border: var(--divider-color, rgb(0 0 0 / 0.12));
+  --input: var(--border);
+  --ring: var(--primary);
+  --destructive: var(--error-color, #db4437);
+  --warning: var(--warning-color, #ffa600);
+
+  display: block;
+  font-family: var(--ha-font-family-body, Roboto, Noto, sans-serif);
+  -webkit-font-smoothing: antialiased;
+}
+
+@theme inline {
+  --font-sans: var(--ha-font-family-body, Roboto, Noto, sans-serif);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  /* Tailwind v4 resets buttons to `cursor: default`. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+}
+
+/*
+ * Native <dialog> chrome; the visual styles are set with utilities.
+ * Sizes keep a margin to the screen edges plus HA's safe-area insets
+ * (notches, status and navigation bars in the companion app).
+ */
+dialog.rc-dialog {
+  --rc-margin: 1rem;
+  --rc-header-height: 4rem;
+  --rc-available-width: calc(
+    100vw -
+    2 *
+    var(--rc-margin) -
+    var(--safe-area-inset-left, 0px) -
+    var(--safe-area-inset-right, 0px)
+  );
+  --rc-available-height: calc(
+    100dvh -
+    2 *
+    var(--rc-margin) -
+    var(--safe-area-inset-top, 0px) -
+    var(--safe-area-inset-bottom, 0px)
+  );
+  --rc-video-max-height: min(calc(var(--rc-available-height) - var(--rc-header-height)), 70dvh);
+
+  /* Padding shifts the centered box out of the unsafe areas. */
+  box-sizing: content-box;
+  padding: var(--safe-area-inset-top, 0px) var(--safe-area-inset-right, 0px)
+    var(--safe-area-inset-bottom, 0px) var(--safe-area-inset-left, 0px);
+  width: min(var(--rc-available-width), 1024px);
+  max-width: none;
+  max-height: none;
+  margin: auto;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  overflow: visible;
+}
+
+/* Shrink to the camera's ratio so tall images aren't pillarboxed on wide screens. */
+dialog.rc-dialog[data-fit-ratio] {
+  width: min(var(--rc-available-width), 1024px, calc(var(--rc-video-max-height) * var(--rc-ratio)));
+}
+
+dialog.rc-dialog::backdrop {
+  background: rgb(0 0 0 / 0.6);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  dialog.rc-dialog[open] .rc-panel {
+    animation: rc-dialog-in 160ms ease-out;
+  }
+}
+
+@keyframes rc-dialog-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}

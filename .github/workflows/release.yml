@@ -1,0 +1,33 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Check tag matches package.json
+        run: |
+          version="$(jq -r .version package.json)"
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$version" != "$tag" ]; then
+            echo "::error::Release tag $GITHUB_REF_NAME does not match package.json version $version"
+            exit 1
+          fi
+      - run: bun run lint
+      - run: bun run check
+      - run: bun test
+      - run: bun run build
+      # HACS downloads every .js asset of the release, so the lazy hls.js chunk ships too.
+      - name: Attach bundle to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/*.js --clobber
