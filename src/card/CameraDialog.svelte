@@ -10,6 +10,8 @@
 
   /** Narrow portrait screens get the PTZ D-pad below the video; it doesn't fit in landscape. */
   const PTZ_PANEL_MEDIA_QUERY = "(max-width: 870px) and (orientation: portrait)";
+  /** Keys that scroll the page from a focused element without an action of its own. */
+  const SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
 
   interface Props {
     ctx: HassContext;
@@ -56,20 +58,31 @@
     dialog?.showModal();
     // showModal() focuses the close button and shows its focus ring; start on the panel instead.
     panel?.focus();
-    // A modal <dialog> doesn't stop wheel and touch scrolling from reaching the
-    // dashboard behind it. Only the dialog's own scroll area may scroll, and only
-    // while it overflows (its overscroll-contain keeps it from chaining further).
-    const blockPageScroll = (event: Event) => {
-      const target = event.target as Node | null;
-      if (scroller?.contains(target) && scroller.scrollHeight > scroller.clientHeight) return;
-      if (event.cancelable) event.preventDefault();
+    // A modal <dialog> doesn't stop the dashboard behind it from scrolling. Only
+    // the dialog's own scroll area may scroll, and only while it overflows (its
+    // overscroll-contain keeps it from chaining further).
+    const scrollsInside = (event: Event) =>
+      scroller !== undefined &&
+      event.composedPath().includes(scroller) &&
+      scroller.scrollHeight > scroller.clientHeight;
+    // On the window: Chrome sends wheel events over the backdrop only to listeners
+    // whose element covers that spot, so one on the dialog never sees them.
+    const blockScroll = (event: Event) => {
+      if (event.cancelable && !scrollsInside(event)) event.preventDefault();
     };
-    // Svelte's own wheel/touchmove handlers are passive and can't cancel the scroll.
+    const blockScrollKeys = (event: KeyboardEvent) => {
+      if (!SCROLL_KEYS.has(event.key) || scrollsInside(event)) return;
+      // Space still presses buttons.
+      if (event.key === " " && event.target !== panel && event.target !== dialog) return;
+      event.preventDefault();
+    };
     for (const type of ["wheel", "touchmove"]) {
-      dialog?.addEventListener(type, blockPageScroll, { passive: false });
+      window.addEventListener(type, blockScroll, { passive: false });
     }
+    dialog?.addEventListener("keydown", blockScrollKeys);
     return () => {
-      for (const type of ["wheel", "touchmove"]) dialog?.removeEventListener(type, blockPageScroll);
+      for (const type of ["wheel", "touchmove"]) window.removeEventListener(type, blockScroll);
+      dialog?.removeEventListener("keydown", blockScrollKeys);
       if (dialog?.open) dialog.close();
     };
   });
