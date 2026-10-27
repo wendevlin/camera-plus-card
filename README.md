@@ -13,7 +13,7 @@ A Home Assistant dashboard card for any camera. It looks like the regular pictur
 
 Requires **Home Assistant 2026.5** or newer. The card reads its data from the frontend's context API, which arrived in that release.
 
-> **Beta:** 0.1.0 is published as a GitHub pre-release. If HACS only offers the default branch, choose the beta version in its download dialog.
+> **Beta:** versions named `-beta.N` are early releases. Expect rough edges, and please [report issues](https://github.com/wendevlin/camera-plus-card/issues).
 
 ### HACS (custom repository)
 
@@ -85,7 +85,7 @@ The toolchain is [Bun](https://bun.sh) (pinned in `mise.toml`), with Vite as the
 ### Releasing
 
 1. Bump `version` in `package.json` (e.g. `0.1.0-beta.2`) and commit.
-2. Create a GitHub release whose tag is exactly the version, without a `v` prefix (e.g. `0.1.0-beta.1`). Mark betas as *pre-release*.
+2. Create a GitHub release whose tag is exactly the version, without a `v` prefix (e.g. `0.1.0-beta.1`). Publish betas as normal releases too: HACS ignores GitHub pre-releases and would fall back to `main`, which has no built file.
 3. The release workflow checks the tag against `package.json`, runs all checks, builds and attaches the `.js` files, then runs the HACS validation against the release. HACS picks the files up from there.
 
 ### How it fits into Home Assistant
