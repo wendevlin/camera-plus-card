@@ -86,7 +86,9 @@ export function startCameraStream(opts: StartStreamOptions): () => void {
         if (!attempt.current() || next.getVideoTracks().length === 0) return;
         clearTimeout(timeout);
         stream = next;
-        if (opts.video.srcObject !== next) opts.video.srcObject = next;
+        // Reassign even when it's the same stream, like HA's own player: a track
+        // added after the first assignment (usually audio) is otherwise not always played.
+        opts.video.srcObject = next;
         opts.onMode("web_rtc");
       },
       onError: attempt.fail,
