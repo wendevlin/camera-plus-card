@@ -108,7 +108,9 @@
   const onVideoSize = () => {
     if (video) updateAspect(video.videoWidth, video.videoHeight);
   };
-  let muted = $state(true);
+  // Sound is on by default with controls; the passive live view has no mute button.
+  // svelte-ignore state_referenced_locally
+  let muted = $state(!controls);
   let fullscreen = $state(false);
   let controlsVisible = $state(true);
   let popoverOpen = $state(false);
@@ -279,6 +281,18 @@
     if (!muted && video.paused) video.play().catch(() => (muted = true));
   };
 
+  // Browsers only autoplay with sound after enough user interaction (iOS never).
+  // When they refuse, play muted instead of staying black; the button turns sound on.
+  const onCanPlay = () => {
+    if (!video?.paused || video.muted) return;
+    video.play().catch((err: unknown) => {
+      if (!video || (err as DOMException).name !== "NotAllowedError") return;
+      muted = true;
+      video.muted = true;
+      video.play().catch(() => undefined);
+    });
+  };
+
   const snapshot = () => {
     if (!ctx.hassApi) return;
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -378,6 +392,7 @@
         )}
         poster={EMPTY_POSTER}
         onplaying={() => (playing = true)}
+        oncanplay={onCanPlay}
         onloadedmetadata={onVideoSize}
         onresize={onVideoSize}
         onemptied={() => (playing = false)}
