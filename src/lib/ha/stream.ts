@@ -1,12 +1,13 @@
-import { fetchCameraCapabilities, fetchHlsUrl, type StreamType } from "./camera";
-import { attachHls } from "./hls";
+import { supportsStream } from "./camera";
 import type { HassApi, HassConnectionContext, HassEntity } from "./types";
 import { WebRtcSession } from "./webrtc";
 
-export type StreamMode = "connecting" | StreamType | "mjpeg";
+export type StreamMode = "connecting" | "live" | "error";
 
-/** How long WebRTC gets to deliver a video track before we fall back. */
-const WEBRTC_TIMEOUT_MS = 12_000;
+/** How long one WebRTC session gets to connect (ICE and DTLS up) before it's replaced. */
+const CONNECT_TIMEOUT_MS = 10_000;
+/** Sessions tried before giving up; a stuck negotiation often succeeds on a fresh one. */
+const MAX_ATTEMPTS = 2;
 
 export interface StartStreamOptions {
   api: HassApi;
@@ -15,30 +16,24 @@ export interface StartStreamOptions {
   video: HTMLVideoElement;
   onMode: (mode: StreamMode) => void;
   /** Injectable for tests. */
-  webRtcTimeoutMs?: number;
+  connectTimeoutMs?: number;
   /** Injectable for tests. */
   createWebRtcSession?: (opts: ConstructorParameters<typeof WebRtcSession>[0]) => WebRtcSession;
 }
 
-/** One attempt at one stream type. Callbacks of stale attempts are ignored. */
-interface Attempt {
-  /** True while this attempt is the one that should drive the video. */
-  current: () => boolean;
-  /** Moves on to the next stream type; only the first call per attempt counts. */
-  fail: (err: Error) => void;
-  /** Hands over teardown; runs it right away if the attempt is already over. */
-  own: (cleanup: () => void) => void;
-}
-
 /**
- * Always tries WebRTC first, then HLS, then MJPEG (rendered by the caller as
- * an `<img>` once mode is `mjpeg`). Late failures fall through to the next
- * option too. Returns a cleanup function.
+ * Streams the camera over WebRTC. A session that fails or doesn't connect in
+ * time is replaced once; after that the mode is `error` and the caller offers
+ * a retry. A session that drops after running for longer than the connect
+ * timeout gets a fresh set of attempts; one that drops right after connecting
+ * counts as a failed attempt, so a flapping camera can't reconnect forever.
+ * Returns a cleanup function.
  */
 export function startCameraStream(opts: StartStreamOptions): () => void {
   let disposed = false;
   let attemptId = 0;
   let cleanup: (() => void) | undefined;
+  const timeoutMs = opts.connectTimeoutMs ?? CONNECT_TIMEOUT_MS;
 
   const teardown = () => {
     const run = cleanup;
@@ -46,88 +41,71 @@ export function startCameraStream(opts: StartStreamOptions): () => void {
     run?.();
   };
 
-  const tryNext = (order: readonly StreamType[]): void => {
+  const attempt = (number: number): void => {
     if (disposed) return;
     const id = ++attemptId;
     teardown();
-    const [type, ...rest] = order;
-    if (!type) {
-      opts.onMode("mjpeg");
-      return;
-    }
-
-    let over = false;
-    const attempt: Attempt = {
-      current: () => !disposed && !over && attemptId === id,
-      fail: (err) => {
-        if (!attempt.current()) return;
-        over = true;
-        console.warn(`[camera-plus-card] ${type} failed, falling back`, err);
-        tryNext(rest);
-      },
-      own: (stop) => {
-        if (attempt.current()) cleanup = stop;
-        else stop();
-      },
-    };
-    const start = type === "web_rtc" ? startWebRtc(attempt) : startHls(attempt);
-    start.catch((err) => attempt.fail(err instanceof Error ? err : new Error(String(err))));
-  };
-
-  const startWebRtc = async (attempt: Attempt) => {
-    const create = opts.createWebRtcSession ?? ((sessionOpts) => new WebRtcSession(sessionOpts));
+    opts.onMode("connecting");
+    const current = () => !disposed && attemptId === id;
+    let connectedAt: number | undefined;
     let stream: MediaStream | undefined;
+
+    const fail = (err: Error) => {
+      if (!current()) return;
+      // Invalidate this attempt right away, so its late callbacks are ignored.
+      attemptId++;
+      teardown();
+      const stable = connectedAt !== undefined && performance.now() - connectedAt >= timeoutMs;
+      const retry = stable || number < MAX_ATTEMPTS;
+      console.warn(`[camera-plus-card] WebRTC failed${retry ? ", retrying" : ""}`, err);
+      if (retry) {
+        attempt(stable ? 1 : number + 1);
+      } else {
+        opts.onMode("error");
+      }
+    };
+
+    const create = opts.createWebRtcSession ?? ((sessionOpts) => new WebRtcSession(sessionOpts));
     const session = create({
       api: opts.api,
       connection: opts.connection.connection,
       entityId: opts.stateObj.entity_id,
       onStream: (next) => {
-        // Audio can arrive first; only a video track counts as "playing".
-        if (!attempt.current() || next.getVideoTracks().length === 0) return;
-        clearTimeout(timeout);
+        // Audio can arrive first; only a video track counts.
+        if (!current() || next.getVideoTracks().length === 0) return;
         stream = next;
         // Reassign even when it's the same stream, like HA's own player: a track
         // added after the first assignment (usually audio) is otherwise not always played.
         opts.video.srcObject = next;
-        opts.onMode("web_rtc");
+        opts.onMode("live");
       },
-      onError: attempt.fail,
+      onConnected: () => {
+        if (!current()) return;
+        connectedAt = performance.now();
+        clearTimeout(timeout);
+      },
+      onError: fail,
     });
-    const timeout = setTimeout(
-      () => attempt.fail(new Error("WebRTC timed out")),
-      opts.webRtcTimeoutMs ?? WEBRTC_TIMEOUT_MS,
-    );
-    // Own the session before awaiting, so a timeout or disposal mid-negotiation closes it.
-    attempt.own(() => {
+    const timeout = setTimeout(() => fail(new Error("WebRTC didn't connect in time")), timeoutMs);
+    // Set before awaiting, so a timeout or disposal mid-negotiation closes the session.
+    cleanup = () => {
       clearTimeout(timeout);
       session.close();
       if (stream && opts.video.srcObject === stream) opts.video.srcObject = null;
-    });
-    await session.start();
+    };
+    session.start().catch((err) => fail(err instanceof Error ? err : new Error(String(err))));
   };
 
-  const startHls = async (attempt: Attempt) => {
-    const url = await fetchHlsUrl(opts.api, opts.connection, opts.stateObj.entity_id);
-    if (!attempt.current()) return;
-    const detach = await attachHls(opts.video, url, attempt.fail);
-    attempt.own(detach);
-    if (attempt.current()) opts.onMode("hls");
-  };
+  if (supportsStream(opts.stateObj)) {
+    attempt(1);
+  } else {
+    console.warn(`[camera-plus-card] ${opts.stateObj.entity_id} doesn't support streaming`);
+    opts.onMode("error");
+  }
 
-  const run = async () => {
-    opts.onMode("connecting");
-    let types: StreamType[] = [];
-    try {
-      types = (await fetchCameraCapabilities(opts.api, opts.stateObj)).frontend_stream_types;
-    } catch (err) {
-      console.warn("[camera-plus-card] camera/capabilities failed", err);
-    }
-    tryNext((["web_rtc", "hls"] as const).filter((type) => types.includes(type)));
-  };
-
-  void run();
   return () => {
     disposed = true;
+    attemptId++;
     teardown();
   };
 }

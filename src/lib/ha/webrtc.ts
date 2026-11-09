@@ -16,6 +16,8 @@ export interface WebRtcSessionOptions {
   connection: HassConnection;
   entityId: string;
   onStream: (stream: MediaStream) => void;
+  /** ICE and DTLS are up; media can flow. */
+  onConnected?: () => void;
   onError: (error: Error) => void;
   /** Injectable for tests. */
   createPeerConnection?: (config: RTCConfiguration) => RTCPeerConnection;
@@ -33,18 +35,34 @@ export class WebRtcSession {
   #pendingCandidates: RTCIceCandidate[] = [];
   #stream = new MediaStream();
   #closed = false;
+  #startedAt = 0;
+  #logged = new Set<string>();
 
   constructor(opts: WebRtcSessionOptions) {
     this.#opts = opts;
   }
 
+  /**
+   * Timing of each negotiation step, to see where a slow start spends its time.
+   * Shown in the browser console with the "Verbose" level enabled.
+   */
+  #log(step: string, once = true): void {
+    if (once && this.#logged.has(step)) return;
+    this.#logged.add(step);
+    const ms = Math.round(performance.now() - this.#startedAt);
+    console.debug(`[camera-plus-card] ${this.#opts.entityId} WebRTC +${ms}ms ${step}`);
+  }
+
   async start(): Promise<void> {
     const { api, entityId } = this.#opts;
+    this.#startedAt = performance.now();
+    this.#log("start");
     const clientConfig = await api.callWS<WebRtcClientConfig>({
       type: "camera/webrtc/get_client_config",
       entity_id: entityId,
     });
     if (this.#closed) return;
+    this.#log("client config");
 
     const pc = (this.#opts.createPeerConnection ?? ((c) => new RTCPeerConnection(c)))(
       clientConfig.configuration,
@@ -58,24 +76,37 @@ export class WebRtcSession {
     pc.addTransceiver("video", { direction: "recvonly" });
 
     pc.onicecandidate = (event) => {
-      if (!event.candidate?.candidate) return;
+      if (!event.candidate?.candidate) {
+        this.#log("local ICE gathering complete");
+        return;
+      }
+      this.#log("first local ICE candidate");
       if (this.#sessionId) {
         this.#sendCandidate(event.candidate);
       } else {
         this.#pendingCandidates.push(event.candidate);
       }
     };
+    // No ICE restart: it needs a renegotiation HA's offer API doesn't offer.
+    // A failure ends the session and the caller starts a fresh one.
     pc.oniceconnectionstatechange = () => {
+      if (this.#closed) return;
+      this.#log(`ICE ${pc.iceConnectionState}`, false);
       if (pc.iceConnectionState === "failed") {
-        pc.restartIce();
+        this.#opts.onError(new Error("WebRTC ICE connection failed"));
       }
     };
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === "failed" && !this.#closed) {
+      if (this.#closed) return;
+      this.#log(`connection ${pc.connectionState}`, false);
+      if (pc.connectionState === "connected") {
+        this.#opts.onConnected?.();
+      } else if (pc.connectionState === "failed") {
         this.#opts.onError(new Error("WebRTC connection failed"));
       }
     };
     pc.ontrack = (event) => {
+      this.#log(`${event.track.kind} track`);
       this.#stream.addTrack(event.track);
       this.#opts.onStream(this.#stream);
     };
@@ -84,6 +115,7 @@ export class WebRtcSession {
     await pc.setLocalDescription(offer);
     if (this.#closed) return;
 
+    this.#log("offer sent");
     this.#unsub = await this.#opts.connection.subscribeMessage<WebRtcOfferEvent>(
       (event) => this.#handleOfferEvent(event),
       { type: "camera/webrtc/offer", entity_id: entityId, offer: offer.sdp },
@@ -101,16 +133,19 @@ export class WebRtcSession {
     if (!pc || this.#closed) return;
     switch (event.type) {
       case "session":
+        this.#log("session id");
         this.#sessionId = event.session_id;
         for (const candidate of this.#pendingCandidates.splice(0)) {
           this.#sendCandidate(candidate);
         }
         break;
       case "answer":
+        this.#log("answer");
         if (pc.signalingState === "stable" || pc.signalingState === "closed") return;
         await pc.setRemoteDescription({ type: "answer", sdp: event.answer });
         break;
       case "candidate": {
+        this.#log("first remote ICE candidate");
         const candidate =
           event.candidate.sdpMid == null && event.candidate.sdpMLineIndex == null
             ? { candidate: event.candidate.candidate, sdpMid: "0" }

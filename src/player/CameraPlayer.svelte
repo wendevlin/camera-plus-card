@@ -20,7 +20,7 @@
   import { isDoorEntity, openDoor } from "$lib/door";
   import { visibleRegion } from "$lib/gestures/pan-zoom";
   import { PanZoom } from "$lib/gestures/pan-zoom.svelte";
-  import { downloadSnapshot, fetchSnapshotUrl, mjpegUrl } from "$lib/ha/camera";
+  import { downloadSnapshot, fetchSnapshotUrl } from "$lib/ha/camera";
   import type { HassContext } from "$lib/ha/context.svelte";
   import { type StreamMode, startCameraStream } from "$lib/ha/stream";
   import type { Translate } from "$lib/i18n";
@@ -89,6 +89,8 @@
   /** True once the video renders frames; until then the snapshot placeholder shows. */
   let playing = $state(false);
   let placeholder = $state<string>();
+  /** Bumped by the retry button to start a fresh stream. */
+  let retries = $state(0);
 
   // Remember ratios per camera so reopening the dialog doesn't start at 16:9 and jump.
   $effect.pre(() => {
@@ -141,12 +143,11 @@
 
   const connected = $derived(ctx.hassConnection?.connected !== false);
   // Track only identity changes of the camera, not every state update. Dropping
-  // to undefined stops the stream: on disconnect (it restarts from WebRTC when
-  // HA is back) and while the page is hidden (background tab, backgrounded app).
+  // to undefined stops the stream: on disconnect (it restarts when HA is back)
+  // and while the page is hidden (background tab, backgrounded app).
   const streamKey = $derived(
     stateObj && !unavailable && connected && pageVisibility.visible ? entityId : undefined,
   );
-  let mjpegSrc = $state<string>();
 
   $effect(() => {
     zoom.resize({ width: viewportWidth, height: viewportHeight });
@@ -155,6 +156,7 @@
   $effect(() => {
     const key = streamKey;
     const element = video;
+    void retries;
     if (!key || !element) return;
     // Restart only when the camera or element changes, not on every state push.
     return untrack(() => {
@@ -168,12 +170,8 @@
         stateObj: camera,
         video: element,
         onMode: (next) => {
-          if (next === "connecting") playing = false;
-          // Capture the MJPEG URL once: its token rotates every 5 minutes, and a
-          // reactive src would reconnect the stream each time.
-          mjpegSrc =
-            next === "mjpeg" && ctx.states?.[key] ? mjpegUrl(connection, ctx.states[key]) : undefined;
-          if (mode === "connecting" && next !== "connecting" && controls) scheduleHide();
+          if (next !== "live") playing = false;
+          if (mode === "connecting" && next === "live" && controls) scheduleHide();
           mode = next;
         },
       });
@@ -369,7 +367,7 @@
       )}
       style={zoom.style}
     >
-      {#if placeholder && !playing && mode !== "mjpeg"}
+      {#if placeholder && !playing}
         <img
           src={placeholder}
           onload={onImageLoad}
@@ -378,7 +376,6 @@
           draggable="false"
         >
       {/if}
-      <!-- The video stays mounted so the stream effect isn't torn down on MJPEG fallback. -->
       <!-- biome-ignore lint/a11y/useMediaCaption: live camera feeds have no caption track. -->
       <video
         bind:this={video}
@@ -386,7 +383,6 @@
         class={cn(
           "size-full",
           fit === "cover" ? "object-cover" : "object-contain",
-          mode === "mjpeg" && "hidden",
           // Keep the element invisible until real frames arrive (no native loading UI).
           !playing && "opacity-0",
         )}
@@ -400,15 +396,6 @@
         playsinline
         disablepictureinpicture={!controls}
       ></video>
-      {#if mode === "mjpeg" && mjpegSrc}
-        <img
-          src={mjpegSrc}
-          onload={onImageLoad}
-          alt={name}
-          class={cn("size-full", fit === "cover" ? "object-cover" : "object-contain")}
-          draggable="false"
-        >
-      {/if}
     </div>
   </div>
 
@@ -416,7 +403,24 @@
     <div class="absolute inset-0 flex items-center justify-center bg-black/70 text-sm">
       {t("card.unavailable")}
     </div>
-  {:else if mode === "connecting" || (!playing && mode !== "mjpeg")}
+  {:else if mode === "error"}
+    <div
+      class="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/70 p-4 text-center text-sm"
+    >
+      <div class="flex items-center gap-2">
+        <CircleAlert class="size-5 shrink-0" />
+        {t("player.error")}
+      </div>
+      <button
+        type="button"
+        class="flex h-9 items-center gap-1.5 rounded-full bg-white/15 px-4 font-medium ring-1 ring-white/20 transition hover:bg-white/25 focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none [&_svg]:size-4"
+        onclick={() => retries++}
+      >
+        <RotateCcw />
+        {t("player.retry")}
+      </button>
+    </div>
+  {:else if !playing}
     <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
       <LoaderCircle class="size-8 animate-spin text-white/80" aria-label={t("player.connecting")} />
     </div>
@@ -427,15 +431,14 @@
     <div
       class={cn(
         "pointer-events-none absolute top-3 left-3 z-10 flex items-center gap-1.5 rounded-full bg-black/45 px-2.5 py-1 text-xs font-medium backdrop-blur-md transition-opacity",
-        !controlsVisible && !ptzMode && "opacity-0",
+        ((!controlsVisible && !ptzMode) || mode === "error") && "opacity-0",
       )}
     >
-      {#if mode === "connecting"}
-        {t("player.connecting")}
-      {:else}
+      {#if mode === "live"}
         <span class="size-2 rounded-full bg-red-500"></span>
         {t("player.live")}
-        <span class="text-white/60">· {t(`player.mode.${mode}`)}</span>
+      {:else if mode === "connecting"}
+        {t("player.connecting")}
       {/if}
     </div>
 
@@ -539,7 +542,7 @@
         )}
         onfocusin={showControls}
       >
-        {#if mode === "web_rtc" || mode === "hls"}
+        {#if mode === "live"}
           <ControlButton label={muted ? t("player.unmute") : t("player.mute")} onclick={toggleMute}>
             {#if muted}
               <VolumeX />
@@ -599,7 +602,7 @@
           </ControlButton>
         {/if}
 
-        {#if pipSupported && mode !== "mjpeg"}
+        {#if pipSupported && mode === "live"}
           <ControlButton label={t("player.pip")} onclick={togglePip}>
             <PictureInPicture />
           </ControlButton>
