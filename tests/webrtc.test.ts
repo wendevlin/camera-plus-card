@@ -119,7 +119,7 @@ test("negotiates through camera/webrtc/* and queues ICE until the session id", a
   await Promise.resolve();
   expect(pc.candidates).toEqual([{ candidate: "b", sdpMid: "0" }]);
 
-  pc.ontrack?.({ track: {} });
+  pc.ontrack?.({ track: { kind: "video" } });
   expect(streams).toHaveLength(1);
 
   session.close();

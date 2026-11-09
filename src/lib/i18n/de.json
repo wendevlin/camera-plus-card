@@ -17,6 +17,8 @@
   "card.open": "{name} öffnen",
   "player.connecting": "Verbinde…",
   "player.live": "Live",
+  "player.error": "Keine Verbindung zur Kamera",
+  "player.retry": "Erneut versuchen",
   "player.mute": "Stummschalten",
   "player.unmute": "Ton einschalten",
   "player.quality": "Streamqualität",

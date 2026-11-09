@@ -112,7 +112,7 @@
     class="rc-panel relative flex max-h-(--rc-available-height) flex-col overflow-hidden rounded-(--radius-xl) bg-background text-foreground shadow-2xl outline-none"
   >
     <header class="flex shrink-0 items-center gap-2 px-4 py-3">
-      <h2 class="min-w-0 flex-1 truncate text-lg font-medium">{name}</h2>
+      <!-- Close sits left of the title, like in Home Assistant's own dialogs. -->
       <button
         type="button"
         class="flex size-9 items-center justify-center rounded-full bg-muted text-foreground transition hover:bg-muted-foreground/25 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none [&_svg]:size-5"
@@ -122,6 +122,7 @@
       >
         <X />
       </button>
+      <h2 class="min-w-0 flex-1 truncate text-lg font-medium">{name}</h2>
     </header>
 
     <!-- Scrolls when the PTZ panel doesn't fit below the video on short screens. -->

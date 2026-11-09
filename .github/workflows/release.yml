@@ -53,7 +53,6 @@ jobs:
           # Fall back to an empty body if GitHub can't generate the notes.
           gh release create "$VERSION" --target "$GITHUB_SHA" --title "$VERSION" --generate-notes \
             || gh release create "$VERSION" --target "$GITHUB_SHA" --title "$VERSION" --notes ""
-      # HACS downloads every .js asset of the release, so the lazy hls.js chunk ships too.
       - name: Attach bundle to release
         env:
           VERSION: ${{ steps.version.outputs.version }}

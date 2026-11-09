@@ -1,6 +1,6 @@
 {
   "name": "camera-plus-card",
-  "version": "0.1.0-beta.3",
+  "version": "0.1.0-beta.4",
   "description": "Home Assistant camera card with live WebRTC, digital zoom, press-and-hold PTZ and a door button.",
   "keywords": [
     "home-assistant",
@@ -52,7 +52,6 @@
     "@lucide/svelte": "^1.62.0",
     "bits-ui": "^2.20.2",
     "clsx": "^2.1.1",
-    "hls.js": "^1.7.3",
     "tailwind-merge": "^3.7.0",
     "tailwind-variants": "^3.3.1"
   }

@@ -2,7 +2,7 @@
 
 A Home Assistant dashboard card for any camera. It looks like the regular picture card, but tapping it opens a richer live view:
 
-- **WebRTC first.** It falls back to HLS, then MJPEG. A badge shows which one is active.
+- **WebRTC only.** A session that doesn't connect within 10 seconds is retried once; after that the card shows an error with a retry button. Step timings are logged to the browser console at the "Verbose" level.
 - **Large centered dialog** on desktop and mobile, sized to the camera's aspect ratio. On narrow portrait screens the PTZ controls sit below the video instead of on top of it.
 - **Custom video controls:** mute, stream quality switch, snapshot download, digital zoom, picture-in-picture and fullscreen.
 - **Digital zoom.** Pinch to zoom on touch devices. On desktop, use the zoom button's slider or ctrl/⌘ + scroll. Drag to look around while zoomed, and double-tap or double-click to toggle 2×.
@@ -24,7 +24,7 @@ Requires **Home Assistant 2026.5** or newer. The card reads its data from the fr
 
 ### Manual
 
-Download every `.js` file from the [latest release](https://github.com/wendevlin/camera-plus-card/releases) into `/config/www/camera-plus-card/`. The card loads hls.js from a second file, and only when WebRTC isn't available. Then add `/local/camera-plus-card/camera-plus-card.js` as a **JavaScript module** under *Settings → Dashboards → ⋮ → Resources*.
+Download `camera-plus-card.js` from the [latest release](https://github.com/wendevlin/camera-plus-card/releases) into `/config/www/camera-plus-card/`. Then add `/local/camera-plus-card/camera-plus-card.js` as a **JavaScript module** under *Settings → Dashboards → ⋮ → Resources*.
 
 ## Configure
 
@@ -93,7 +93,7 @@ Publishing a release by hand on GitHub still works: the workflow then checks the
 
 - **Svelte 5 in a shadow root.** `src/card/camera-plus-card.svelte.ts` is a thin custom element that HA talks to (`setConfig`, `getConfigForm`, `getGridOptions`). It mounts the Svelte app into its open shadow root. It uses no HA components, so nothing leaks in or out.
 - **HA contexts instead of `hass`.** The element dispatches the standard `context-request` event, the same protocol `@lit/context` uses. It reads `states`, `entities`, `devices`, `hassApi`, `hassConnection` and others from the providers on `<home-assistant>`. See `src/lib/ha/context.svelte.ts`.
-- **Bundle.** One ES module plus a lazily loaded hls.js chunk, resolved relative to the card file. Clients that get WebRTC (the default with go2rtc) never download it.
+- **Bundle.** One ES module.
 - **Styles.** Tailwind v4 and shadcn-svelte are compiled to a single constructable stylesheet that's adopted by the shadow root (`src/lib/shadow.ts`), with a `<style>` fallback. `@property` rules don't work inside shadow roots, so they're moved to the document once. Design tokens map to HA theme variables (`--primary-color`, `--card-background-color`, and so on), so the card follows the active theme.
 - **Dialog.** It's a native `<dialog>` opened with `showModal()`, rendered inside the card. The browser's top layer means parent cards can't clip it, even inside sections or stacks. Popovers and selects portal into the dialog through `BitsConfig defaultPortalTo`, never into `document.body`.
 - **Camera mapping** (`src/lib/camera/device.ts`). Collects the device's camera entities for any integration, then applies the profile of each integration present.

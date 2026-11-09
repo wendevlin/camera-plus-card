@@ -35,8 +35,6 @@ export default defineConfig(({ mode }) => ({
       output: {
         format: "es",
         entryFileNames: "camera-plus-card.js",
-        // hls.js is only needed when WebRTC isn't available, so it's split off and lazy-loaded.
-        chunkFileNames: "camera-plus-card-[name]-[hash].js",
       },
     },
   },
