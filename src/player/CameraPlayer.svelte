@@ -144,9 +144,9 @@
   const connected = $derived(ctx.hassConnection?.connected !== false);
   // Track only identity changes of the camera, not every state update. Dropping
   // to undefined stops the stream: on disconnect (it restarts when HA is back)
-  // and while the page is hidden (background tab, backgrounded app).
+  // and once the page has been hidden for a while (background tab, backgrounded app).
   const streamKey = $derived(
-    stateObj && !unavailable && connected && pageVisibility.visible ? entityId : undefined,
+    stateObj && !unavailable && connected && pageVisibility.streamable ? entityId : undefined,
   );
 
   $effect(() => {
