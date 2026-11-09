@@ -84,9 +84,10 @@ The toolchain is [Bun](https://bun.sh) (pinned in `mise.toml`), with Vite as the
 
 ### Releasing
 
-1. Bump `version` in `package.json` (e.g. `0.1.0-beta.2`) and commit.
-2. Create a GitHub release whose tag is exactly the version, without a `v` prefix (e.g. `0.1.0-beta.1`). Publish betas as normal releases too: HACS ignores GitHub pre-releases and would fall back to `main`, which has no built file.
-3. The release workflow checks the tag against `package.json`, runs all checks, builds and attaches the `.js` files, then runs the HACS validation against the release. HACS picks the files up from there.
+1. Bump `version` in `package.json` (e.g. `0.1.0-beta.2`) and merge it to `main`.
+2. Run the **Release** workflow on `main` (*Actions → Release → Run workflow*). It runs all checks and builds. Then it creates a release whose tag is exactly the version, without a `v` prefix, attaches the `.js` files and runs the HACS validation against the release. HACS picks the files up from there.
+
+Publishing a release by hand on GitHub still works: the workflow then checks the tag against `package.json` and attaches the files. Publish betas as normal releases too: HACS ignores GitHub pre-releases and would fall back to `main`, which has no built file.
 
 ### How it fits into Home Assistant
 

@@ -1,9 +1,10 @@
 name: Release
 
 on:
+  # A release published by hand on GitHub.
   release:
     types: [published]
-  # Re-run only the HACS validation by hand.
+  # "Run workflow" on main: creates the release for the version in package.json.
   workflow_dispatch:
 
 permissions:
@@ -11,35 +12,56 @@ permissions:
 
 jobs:
   release:
-    if: github.event_name == 'release'
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-      - name: Check tag matches package.json
+      - name: Resolve version
+        id: version
         run: |
-          version="$(jq -r .version package.json)"
           # Tags are the bare version, without a "v" prefix (e.g. 0.1.0-beta.1).
-          tag="$GITHUB_REF_NAME"
-          if [ "$version" != "$tag" ]; then
+          version="$(jq -r .version package.json)"
+          if [ "$GITHUB_EVENT_NAME" = "release" ] && [ "$GITHUB_REF_NAME" != "$version" ]; then
             echo "::error::Release tag $GITHUB_REF_NAME does not match package.json version $version"
             exit 1
           fi
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+              echo "::error::Run the release workflow on main"
+              exit 1
+            fi
+            if gh release view "$version" > /dev/null 2>&1; then
+              echo "::error::Release $version already exists; bump the version in package.json first"
+              exit 1
+            fi
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - run: bun run lint
       - run: bun run check
       - run: bun test
       - run: bun run build
+      # Only after all checks pass, so a failing build never leaves a release without files.
+      # A release created with the workflow token doesn't trigger this workflow again.
+      - name: Create release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # Fall back to an empty body if GitHub can't generate the notes.
+          gh release create "$VERSION" --target "$GITHUB_SHA" --title "$VERSION" --generate-notes \
+            || gh release create "$VERSION" --target "$GITHUB_SHA" --title "$VERSION" --notes ""
       # HACS downloads every .js asset of the release, so the lazy hls.js chunk ships too.
       - name: Attach bundle to release
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" dist/*.js --clobber
+          VERSION: ${{ steps.version.outputs.version }}
+        run: gh release upload "$VERSION" dist/*.js --clobber
 
   # Runs after the assets are attached: HACS looks for camera-plus-card.js in the latest release.
   hacs:
     needs: release
-    if: always() && (needs.release.result == 'success' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     steps:
       - uses: hacs/action@main
