@@ -4,10 +4,15 @@ import { WebRtcSession } from "./webrtc";
 
 export type StreamMode = "connecting" | "live" | "error";
 
-/** How long one WebRTC session gets to connect (ICE and DTLS up) before it's replaced. */
-const CONNECT_TIMEOUT_MS = 10_000;
+/**
+ * How long one WebRTC session gets to connect (ICE and DTLS up) before it's replaced.
+ * The backend first has to connect to the camera, then ICE needs several seconds.
+ */
+const CONNECT_TIMEOUT_MS = 15_000;
 /** Sessions tried before giving up; a stuck negotiation often succeeds on a fresh one. */
 const MAX_ATTEMPTS = 2;
+/** Gives the backend time to tear down the failed session before the next one. */
+const RETRY_DELAY_MS = 1_000;
 
 export interface StartStreamOptions {
   api: HassApi;
@@ -18,13 +23,16 @@ export interface StartStreamOptions {
   /** Injectable for tests. */
   connectTimeoutMs?: number;
   /** Injectable for tests. */
+  retryDelayMs?: number;
+  /** Injectable for tests. */
   createWebRtcSession?: (opts: ConstructorParameters<typeof WebRtcSession>[0]) => WebRtcSession;
 }
 
 /**
  * Streams the camera over WebRTC. A session that fails or doesn't connect in
  * time is replaced once; after that the mode is `error` and the caller offers
- * a retry. A session that drops after running for longer than the connect
+ * a retry. The last session uses every ICE server and gets twice the time, in
+ * case the reduced set misses the only URL that works in this network. A session that drops after running for longer than the connect
  * timeout gets a fresh set of attempts; one that drops right after connecting
  * counts as a failed attempt, so a flapping camera can't reconnect forever.
  * Returns a cleanup function.
@@ -34,6 +42,8 @@ export function startCameraStream(opts: StartStreamOptions): () => void {
   let attemptId = 0;
   let cleanup: (() => void) | undefined;
   const timeoutMs = opts.connectTimeoutMs ?? CONNECT_TIMEOUT_MS;
+  const retryDelayMs = opts.retryDelayMs ?? RETRY_DELAY_MS;
+  let retryTimeout: ReturnType<typeof setTimeout> | undefined;
 
   const teardown = () => {
     const run = cleanup;
@@ -47,6 +57,7 @@ export function startCameraStream(opts: StartStreamOptions): () => void {
     teardown();
     opts.onMode("connecting");
     const current = () => !disposed && attemptId === id;
+    const lastAttempt = number >= MAX_ATTEMPTS;
     let connectedAt: number | undefined;
     let stream: MediaStream | undefined;
 
@@ -59,7 +70,13 @@ export function startCameraStream(opts: StartStreamOptions): () => void {
       const retry = stable || number < MAX_ATTEMPTS;
       console.warn(`[camera-plus-card] WebRTC failed${retry ? ", retrying" : ""}`, err);
       if (retry) {
-        attempt(stable ? 1 : number + 1);
+        const next = stable ? 1 : number + 1;
+        if (retryDelayMs > 0) {
+          opts.onMode("connecting");
+          retryTimeout = setTimeout(() => attempt(next), retryDelayMs);
+        } else {
+          attempt(next);
+        }
       } else {
         opts.onMode("error");
       }
@@ -70,6 +87,7 @@ export function startCameraStream(opts: StartStreamOptions): () => void {
       api: opts.api,
       connection: opts.connection.connection,
       entityId: opts.stateObj.entity_id,
+      allIceServers: lastAttempt,
       onStream: (next) => {
         // Audio can arrive first; only a video track counts.
         if (!current() || next.getVideoTracks().length === 0) return;
@@ -86,7 +104,10 @@ export function startCameraStream(opts: StartStreamOptions): () => void {
       },
       onError: fail,
     });
-    const timeout = setTimeout(() => fail(new Error("WebRTC didn't connect in time")), timeoutMs);
+    const timeout = setTimeout(
+      () => fail(new Error("WebRTC didn't connect in time")),
+      lastAttempt ? timeoutMs * 2 : timeoutMs,
+    );
     // Set before awaiting, so a timeout or disposal mid-negotiation closes the session.
     cleanup = () => {
       clearTimeout(timeout);
@@ -106,6 +127,7 @@ export function startCameraStream(opts: StartStreamOptions): () => void {
   return () => {
     disposed = true;
     attemptId++;
+    clearTimeout(retryTimeout);
     teardown();
   };
 }

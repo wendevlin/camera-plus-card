@@ -35,6 +35,7 @@ const setup = (create: StartStreamOptions["createWebRtcSession"], supportedFeatu
     video,
     onMode: (mode) => modes.push(mode),
     connectTimeoutMs: 20,
+    retryDelayMs: 0,
     createWebRtcSession: create,
   });
   return { modes, video, stop };
@@ -53,9 +54,11 @@ test("a camera without stream support shows an error without trying WebRTC", () 
 test("a session that doesn't connect is replaced once, then the mode is error", async () => {
   const { sessions, create } = fakeSessions(() => new Promise<void>(() => {}));
   const { modes, video } = setup(create);
-  await sleep(80);
+  await sleep(120);
   expect(sessions).toHaveLength(2);
   expect(sessions.map((s) => s.closed)).toEqual([1, 1]);
+  // The last session falls back to every ICE server.
+  expect(sessions.map((s) => s.opts.allIceServers)).toEqual([false, true]);
   expect(modes).toEqual(["connecting", "connecting", "error"]);
 
   // A session that was replaced must not take over the video again.
@@ -116,7 +119,7 @@ test("a drop after running for a while reconnects with a fresh set of attempts",
   expect(sessions).toHaveLength(2);
   expect(modes.at(-1)).toBe("connecting");
   // The new session gets two tries again before giving up.
-  await sleep(80);
+  await sleep(120);
   expect(sessions).toHaveLength(3);
   expect(modes.at(-1)).toBe("error");
 });
