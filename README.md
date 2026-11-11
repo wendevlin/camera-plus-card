@@ -2,7 +2,7 @@
 
 A Home Assistant dashboard card for any camera. It looks like the regular picture card, but tapping it opens a richer live view:
 
-- **WebRTC only.** A session that doesn't connect within 10 seconds is retried once; after that the card shows an error with a retry button. Step timings are logged to the browser console at the "Verbose" level.
+- **WebRTC only.** A session that doesn't connect within 15 seconds is retried once; after that the card shows an error with a retry button. To connect faster, the card only uses one STUN, one UDP TURN and one TCP TURN URL per ICE server host; the retry uses all of them. Step timings are logged to the browser console at the "Verbose" level.
 - **Large centered dialog** on desktop and mobile, sized to the camera's aspect ratio. On narrow portrait screens the PTZ controls sit below the video instead of on top of it.
 - **Custom video controls:** mute, stream quality switch, snapshot download, digital zoom, picture-in-picture and fullscreen.
 - **Digital zoom.** Pinch to zoom on touch devices. On desktop, use the zoom button's slider or ctrl/⌘ + scroll. Drag to look around while zoomed, and double-tap or double-click to toggle 2×.

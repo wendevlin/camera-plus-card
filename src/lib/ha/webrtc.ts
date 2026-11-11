@@ -1,3 +1,4 @@
+import { limitIceServers } from "./ice-servers";
 import type { HassApi, HassConnection } from "./types";
 
 interface WebRtcClientConfig {
@@ -15,6 +16,11 @@ export interface WebRtcSessionOptions {
   api: HassApi;
   connection: HassConnection;
   entityId: string;
+  /**
+   * Use every ICE server URL HA returns instead of the reduced set. Slower,
+   * but covers a network where only one of the removed URLs works.
+   */
+  allIceServers?: boolean;
   onStream: (stream: MediaStream) => void;
   /** ICE and DTLS are up; media can flow. */
   onConnected?: () => void;
@@ -64,8 +70,11 @@ export class WebRtcSession {
     if (this.#closed) return;
     this.#log("client config");
 
+    const { configuration } = clientConfig;
     const pc = (this.#opts.createPeerConnection ?? ((c) => new RTCPeerConnection(c)))(
-      clientConfig.configuration,
+      this.#opts.allIceServers
+        ? configuration
+        : { ...configuration, iceServers: limitIceServers(configuration.iceServers) },
     );
     this.#pc = pc;
 
